@@ -21,3 +21,8 @@ por parâmetro `8000` é a porta onde o servidor vai estar escutando as requisi�
 executar o peer vamos passar as duas flags `--run-peer` e `--to-register` e depois passar
 a porta onde o peer vai ficar escutando, depois passamos o IP do servidor de registros e em seguida
 passamos a porta que o servidor de registros está escutando.
+
+Para obter a lista de registros utilize o seguinte comando `/ls-records`. Para se conectar
+utilize o comando `/connect` passando o valor de domínio (a chave) por parâmetro (`\connect fbd35a7c-9b6c-4815-b7f7-4fff4a42fbd9`). Pronto, conectado
+você agora pode realizar a conversação. Caso deseje sair da conversa utilize o comando `/quit`.
+Para se desregistrar e finalizar o peer utilize o comando `\exit`.

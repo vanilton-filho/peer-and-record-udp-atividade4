@@ -1,28 +1,37 @@
-# peer and record server udp
+# peer and record server udp (Replicação e Tolerância a Falhas)
 
 Para o funcionamento da aplicação precisamos utilizar o seguinte comando
 ao executar o JAR.
 
 > Para executar o JAR é necessário utilizar ao menos a versão 11 do JDK, recomendamos utilizar o OpenJDK 11 ou uma versão mais atual.
 
-Para executar o servidor de registros:
-
-```bash
-java -jar peer-and-record-udp.jar --run-server 8000
+Para executar um servidor de registros utilize o seguinte comando:
+```java
+java -jar peer-and-record-server-udp-1.0-SNAPSHOT-spring-boot.jar --run-server 8080 8081
 ```
 
-Para executar um peer:
-```bash
-java -jar peer-and-record-udp.jar --run-peer --to-register 8081 192.168.0.105 8000
+O seu serviçø de registros vai estar na porta `8080` e o de replicação na porta `8081`.
+
+Para executar um peer(nó na rede), utilize o seguinte comando:
+```java
+java -jar peer-and-record-server-udp-1.0-SNAPSHOT-spring-boot.jar --run-peer 9090
 ```
 
-Para executar você primeiro precisa executar um servidor de registros passando a flag `--run-server`. A porta passada
-por parâmetro `8000` é a porta onde o servidor vai estar escutando as requisições. Ao
-executar o peer vamos passar as duas flags `--run-peer` e `--to-register` e depois passar
-a porta onde o peer vai ficar escutando, depois passamos o IP do servidor de registros e em seguida
-passamos a porta que o servidor de registros está escutando.
+A porta `9090 será utilizada para
+comunicação na rede entre peers
+e servidores.`
 
-Para obter a lista de registros utilize o seguinte comando `/ls-records`. Para se conectar
-utilize o comando `/connect` passando o valor de domínio (a chave) por parâmetro (`/connect fbd35a7c-9b6c-4815-b7f7-4fff4a42fbd9`). Pronto, conectado
-você agora pode realizar a conversação. Caso deseje sair da conversa utilize o comando `/quit`.
-Para se desregistrar e finalizar o peer utilize o comando `\exit`.
+Para replicar um servidor, utilize
+o seguinte comando:
+
+```java
+java -jar peer-and-record-server-udp-1.0-SNAPSHOT-spring-boot.jar --run-server --run-replicate 8082 192.168.0.111 8081
+```
+
+Considerando que `192.168.0.111`
+o endereço IP onde o servidor que será replicado esteja
+executando, você estará criando um
+servidor que ficará disponível
+na porta `8082` para registros e 
+`8081` é a porta que vai requisitar
+o serviço de replicação.

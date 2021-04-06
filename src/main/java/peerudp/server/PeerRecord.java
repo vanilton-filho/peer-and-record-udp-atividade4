@@ -1,11 +1,16 @@
 package peerudp.server;
 
-public class PeerRecord {
-    private String username;
-    private String ip;
-    private int port;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
-    public PeerRecord(String username, String ip, int port) {
+public class PeerRecord {
+
+    private String username;
+
+    private String ip;
+    private Integer port;
+
+    public PeerRecord( @JsonProperty("username") String username,@JsonProperty("ip") String ip, @JsonProperty("port")
+            Integer port) {
         this.username = username;
         this.ip = ip;
         this.port = port;
@@ -27,11 +32,11 @@ public class PeerRecord {
         this.ip = ip;
     }
 
-    public int getPort() {
+    public Integer getPort() {
         return port;
     }
 
-    public void setPort(int port) {
+    public void setPort(Integer port) {
         this.port = port;
     }
 

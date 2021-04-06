@@ -7,7 +7,7 @@
   <groupId>br.edu.ifs.vaniltonfilho</groupId>
   <artifactId>peer-and-record-server-udp</artifactId>
   <version>1.0-SNAPSHOT</version>
-
+  <packaging>jar</packaging>
   <name>peer-and-record-server-udp</name>
   <!-- FIXME change it to the project's website -->
   <!-- <url>http://www.example.com</url> -->
@@ -19,6 +19,16 @@
   </properties>
 
   <dependencies>
+
+    <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-databind -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>2.12.1</version>
+      <scope>compile</scope>
+    </dependency>
+
+
     <dependency>
       <groupId>junit</groupId>
       <artifactId>junit</artifactId>
@@ -28,6 +38,10 @@
   </dependencies>
 
   <build>
+    <sourceDirectory>src/main/java/</sourceDirectory>
+
+    <!--    <finalName>peer-and-record-udp</finalName>-->
+
     <pluginManagement><!-- lock down plugins versions to avoid using Maven defaults (may be moved to parent pom) -->
       <plugins>
         <!-- clean lifecycle, see https://maven.apache.org/ref/current/maven-core/lifecycles.html#clean_Lifecycle -->
@@ -48,20 +62,20 @@
           <artifactId>maven-surefire-plugin</artifactId>
           <version>2.22.1</version>
         </plugin>
-        <plugin>
-          <artifactId>maven-jar-plugin</artifactId>
-          <version>3.0.2</version>
-          <configuration>
-            <finalName>peer-and-record-udp</finalName>
-            <archive>
-              <manifest>
-                <addClasspath>true</addClasspath>
-                <!-- <classpathPrefix>lib/</classpathPrefix> -->
-                <mainClass>peerudp.PeerChat</mainClass>
-              </manifest>
-            </archive>
-          </configuration>
-        </plugin>
+<!--        <plugin>-->
+<!--          <artifactId>maven-jar-plugin</artifactId>-->
+<!--          <version>3.0.2</version>-->
+<!--          <configuration>-->
+<!--            <finalName>peer-and-record-udp</finalName>-->
+<!--            <archive>-->
+<!--              <manifest>-->
+<!--                <addClasspath>true</addClasspath>-->
+<!--                &lt;!&ndash; <classpathPrefix>lib/</classpathPrefix> &ndash;&gt;-->
+<!--                <mainClass>peerudp.PeerChat</mainClass>-->
+<!--              </manifest>-->
+<!--            </archive>-->
+<!--          </configuration>-->
+<!--        </plugin>-->
         <plugin>
           <artifactId>maven-install-plugin</artifactId>
           <version>2.5.2</version>
@@ -79,6 +93,25 @@
           <artifactId>maven-project-info-reports-plugin</artifactId>
           <version>3.0.0</version>
         </plugin>
+
+        <plugin>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-maven-plugin</artifactId>
+          <configuration>
+            <classifier>spring-boot</classifier>
+            <mainClass>peerudp.PeerChat</mainClass>
+          </configuration>
+          <executions>
+            <execution>
+              <id>repackage</id>
+              <phase>package</phase>
+              <goals>
+                <goal>repackage</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
+
       </plugins>
     </pluginManagement>
   </build>

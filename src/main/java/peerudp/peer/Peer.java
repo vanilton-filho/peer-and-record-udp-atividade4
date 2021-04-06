@@ -1,12 +1,8 @@
 package peerudp.peer;
 
 import java.io.IOException;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
-import java.net.InetAddress;
-import java.net.SocketException;
-import java.net.UnknownHostException;
-import java.util.Scanner;
+import java.net.*;
+import java.util.*;
 
 public class Peer {
     private DatagramSocket socket;
@@ -27,7 +23,7 @@ public class Peer {
     // Para dar feedback ao peer que a menagem enviada chegou ao outro peer usamos
     // esta flag
     private boolean promtpCheckedMessage;
-    private String username;
+    private String username = "";
 
     private InetAddress hostRegisterServer;
     private int portRegisterServer;
@@ -36,6 +32,7 @@ public class Peer {
     private boolean isOcupped;
     private boolean isToStopServer;
     private boolean isToStopClient;
+    private boolean isRegistred;
 
     public Peer(int portListen) throws SocketException {
         socket = new DatagramSocket(portListen);
@@ -48,7 +45,15 @@ public class Peer {
         this.portListen = socket.getLocalPort();
         this.hostTarget = hostTarget;
         this.portTarget = portTarget;
-        this.username = System.getProperty("user.name");
+
+        var nameScanner = new Scanner(System.in);
+        do {
+            System.out.print("Username: ");
+            this.username = nameScanner.nextLine();
+        }
+        while (this.username.isBlank() && nameScanner.hasNextLine());
+
+
         this.isToRegister = isToRegister;
         scanner = new Scanner(System.in);
         newRequestPacket();
@@ -91,7 +96,7 @@ public class Peer {
                         running = false;
                     }
                 }
-            } catch (IOException e) {
+            } catch (IOException | InterruptedException e) {
                 System.err.println(e.getMessage());
             }
 
@@ -112,9 +117,11 @@ public class Peer {
     public void runClient() {
         Runnable client = () -> {
             try {
+                toRegisterSequence();
+
                 // Antes de tudo vamos fazer o pedido para registro se
                 // foi solicitado pelo peer ao ser executado
-                toRegister();
+//                toRegister();
                 Thread.sleep(10000);
                 // Thread em loop infinito até segunda ordem
                 var running = true;
@@ -143,8 +150,10 @@ public class Peer {
         // Se o imput for igual ao comando /exit, então comece o processo para
         // encerrar o peer. Comandos neste protocolo sempre são iniciados pelo
         // /<command>
-        if (data.equals(PeerCommand.EXIT.getValue())) {
 
+        if (data.equals(PeerCommand.EXIT.getValue())) {
+            this.isConnect = false;
+            discover();
             // Enviando uma mensagem para o outro peer que pode estar conectado.
             // Não é garantido que está mensagem chegue já
             toUnregister();
@@ -157,23 +166,39 @@ public class Peer {
             Thread.sleep(3000);
             autoKillThread();
         } else if (data.equals(PeerCommand.LS_RECORDS.getValue())) {
+            this.isConnect = false;
+            discover();
             send(PeerStatus.LIST_RECORDS);
         } else if (data.startsWith(PeerCommand.CONNECT.getValue())) {
+            this.isConnect = false;
+            discover();
             // Pegamos o uuid passado depois do commando
             var domainStr = data.substring(9);
             // lembrando que internamente vou enviar os dados com o nome do usuário também
             send("%domain%" + domainStr);
         } else if (data.equals(PeerCommand.QUIT.getValue()) && this.hostTarget != this.hostRegisterServer) {
             send(PeerStatus.QUIT);
+            this.isConnect = false;
+            discover();
             Thread.sleep(1000);
             quit(data, false);
+
+            this.isConnect = false;
         } else if (!data.isBlank() && !containsPeerStatusCode(data, PeerStatus.values())) {
-            send(data);
-            Thread.sleep(1000);
+            if (this.hostTarget != this.hostRegisterServer) {
+                send(data);
+                Thread.sleep(1000);
+            } else {
+                this.isConnect = false;
+                discover();
+                send(data);
+                Thread.sleep(1000);
+            }
+
         }
     }
 
-    private void serverFlow(DataRequest req, String data) throws IOException {
+    private void serverFlow(DataRequest req, String data) throws IOException, InterruptedException {
         if (data.contains(PeerCommand.EXIT.getValue())) {
             exitFlow(req);
         } else if (data.contains(PeerStatus.CLOSE_PEER.getValue())) {
@@ -188,7 +213,7 @@ public class Peer {
             // ao peer de destino.
             this.promtpCheckedMessage = true;
 
-        } else if (data.contains(PeerStatus.OK_REGISTER.getValue())) {
+        } else if (data.contains(PeerStatus.OK_REGISTER.getValue()) || data.contains(PeerStatus.OK_DISCOVER.getValue()) ) {
             okRegisterFlow(req);
 
         } else if (data.contains(PeerStatus.NONE_REGISTER.getValue())) {
@@ -238,14 +263,17 @@ public class Peer {
     }
 
     private void okRegisterFlow(DataRequest req) {
-        // O peer se registrou com sucesso no servidor de registros
-        System.out.println("\n \\0/ l0l Registro efetuado com sucesso! Carregando prompt...\n");
+        if (!this.isRegistred) {
+            // O peer se registrou com sucesso no servidor de registros
+            System.out.println("\n \\0/ l0l Registro efetuado com sucesso! Carregando prompt...\n");
+        }
         // Salvando o endereço do servidor para posterior comunicação
         this.hostRegisterServer = req.getAddress();
         this.portRegisterServer = req.getPort();
         this.hostTarget = this.hostRegisterServer;
         this.portTarget = this.portRegisterServer;
         this.isConnect = true;
+        this.isRegistred = true;
     }
 
     private void notRegisterFlow() {
@@ -289,7 +317,7 @@ public class Peer {
         var extract = data.split("%");
         var ip = extract[2];
         var port = extract[4];
-        if (!ip.equals(InetAddress.getLocalHost().getHostAddress())) {
+        if (!port.equals(this.portListen)) {
             this.hostTarget = InetAddress.getByName(ip);
             this.portTarget = Integer.parseInt(port);
             this.isOcupped = true;
@@ -444,16 +472,22 @@ public class Peer {
 
     public void quit(String data, boolean isToServer) throws IOException {
         if (isToServer) {
+
             System.out.println(extractUsername(data) + " saindo da conversa... ;)");
+
         } else {
+
             System.out.println(username + " saindo da conversa... ;)");
+
         }
 
-        // Configuramos novamente para o servidor de registros
+
         this.hostTarget = this.hostRegisterServer;
         this.portTarget = this.portRegisterServer;
+        // Configuramos novamente para o servidor de registros
         this.isOcupped = false;
         send(PeerStatus.LIST_RECORDS);
+
     }
 
     private void toRegister() throws IOException {
@@ -461,12 +495,36 @@ public class Peer {
             send(PeerStatus.REGISTER);
     }
 
+
+    private void toRegisterSequence() throws IOException {
+        int port = 1024;
+        this.socket.setBroadcast(true);
+        System.out.print("=> Descobrindo servidor...");
+        while (!this.isConnect && port < 65535) {
+            var usernameData = "%" + this.username + "%";
+            var data = usernameData + PeerStatus.REGISTER.getValue();
+            var dataPacket = new DatagramPacket(data.getBytes(), data.length(), InetAddress.getByName("192.168.0.255"), port++);
+            this.socket.send(dataPacket);
+        }
+    }
+
+    private void discover() throws IOException {
+        int port = 1024;
+        this.socket.setBroadcast(true);
+        while (!this.isConnect && port < 65535) {
+            var usernameData = "%" + this.username + "%";
+            var data = usernameData + PeerStatus.DISCOVER.getValue();
+            var dataPacket = new DatagramPacket(data.getBytes(), data.length(), InetAddress.getByName("192.168.0.255"), port++);
+            this.socket.send(dataPacket);
+        }
+
+    }
+
     private void toUnregister() throws InterruptedException, IOException {
         InetAddress tempHostTarget;
         int tempPort;
         tempHostTarget = this.hostTarget;
         tempPort = this.portTarget;
-
         if (this.hostTarget != this.hostRegisterServer) {
 
             unregister();

@@ -1,10 +1,7 @@
 package peerudp.server;
 
 import java.io.IOException;
-import java.net.DatagramPacket;
-import java.net.InetAddress;
-import java.net.SocketException;
-import java.net.UnknownHostException;
+import java.net.*;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -14,6 +11,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.logging.Logger;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import peerudp.peer.DataRequest;
 import peerudp.peer.Peer;
 import peerudp.peer.PeerStatus;
@@ -29,12 +28,14 @@ public class RecordServer extends Peer {
 
     // Vamos salvar os nossos registros associados com uma chave (domain)
     private Map<String, PeerRecord> records = new HashMap<>();
+    private Map<String, ServerRecord> servers = new HashMap<>();
 
     // Essa estrutura é apenas utilizada para garantir que apenas existam
     // chaves únicas no servidor de registros (tipo domínios únicos)
     private Set<String> domains = new HashSet<>();
     // Separando os IPs para ter uma estrutura de dados mais simples
     private List<String> ips = new ArrayList<>();
+    private DatagramSocket subscribeService;
 
     public RecordServer(int port) throws SocketException, UnknownHostException {
         super(port);
@@ -43,18 +44,103 @@ public class RecordServer extends Peer {
         runServer();
     }
 
+
+    public RecordServer(int portListen, InetAddress hostTarget, int portTarget, boolean isToRegister, boolean isToReplicate) throws IOException {
+        // Inicializando socket onde o servidor vai ouvir as requisições dos peers
+        super(portListen);
+        LOGGER.info("| Servidor de registros em execução...");
+        LOGGER.info("| Serviço de registros executando em " + InetAddress.getLocalHost().getHostAddress() + ":" + getPortListen());
+        servers.put(UUID.randomUUID().toString(), new ServerRecord(InetAddress.getLocalHost().getHostAddress(), portTarget));
+
+        if (!isToReplicate) {
+            this.subscribeService = new DatagramSocket(portTarget, InetAddress.getLocalHost());
+            runServer();
+            runServerSubscribe();
+            LOGGER.info("| Serviço de replicação executando em " + InetAddress.getLocalHost().getHostAddress() + ":" + portTarget);
+
+        } else if (isToReplicate) {
+            this.subscribeService = new DatagramSocket(0, InetAddress.getLocalHost());
+            runServer();
+            runServerSubscribe();
+
+            LOGGER.info("| Serviço de replicação executando em " + InetAddress.getLocalHost().getHostAddress() + ":" + this.subscribeService.getLocalPort());
+
+            this.subscribeService.send(new DatagramPacket(PeerStatus.REPLICATE.getValue().getBytes(), PeerStatus.REPLICATE.getValue().length(), hostTarget, portTarget));
+        }
+
+    }
+
     @Override
     public void runServer() {
-        var running = true;
-        while (running) {
-            try {
-                flowServer();
-            } catch (IOException e) {
-                LOGGER.severe(e.getMessage());
-                running = false;
+        Runnable server = () -> {
+            var running = true;
+            while (running) {
+                try {
+                    flowServer();
+                } catch (IOException e) {
+                    LOGGER.severe(e.getMessage());
+                    running = false;
+                }
             }
-        }
+        };
+        new Thread(server).start();
     }
+
+    public void runServerSubscribe() {
+
+        Runnable server = () -> {
+            var running = true;
+            while (running) {
+                try {
+                    DatagramPacket packet = new DatagramPacket(new byte[8192], 8192);
+                    this.subscribeService.receive(packet);
+                    var req = new DataRequest(packet);
+                    var data = req.getData();
+                    if (data.contains(PeerStatus.REPLICATE.getValue())) {
+//                        System.out.println(servers.toString());
+
+                        System.out.println("|~#| Pedido de replicação do servidor... " + req.getAddress() + ":" + req.getPort());
+                        // Salvando a lista de servidores de registros na rede
+                        servers.put(UUID.randomUUID().toString(), new ServerRecord(req.getHostName(), req.getPort()));
+
+                        sendReplicate(records, req);
+                        Thread.sleep(1000);
+                        servers.forEach((chave, serverRecord) -> {
+                            try {
+                                sendServerRecord(servers, serverRecord.getIp(), serverRecord.getPort());
+                            } catch (IOException e) {
+                                e.printStackTrace();
+                            }
+                        });
+//                        System.out.println(new ObjectMapper().writeValueAsString(servers));
+                    } else if (data.startsWith("#")) {
+//                        System.out.println("###########");
+
+                        ObjectMapper mapper = new ObjectMapper();
+                        this.records = mapper.readValue(data.substring(1), new TypeReference<HashMap<String,PeerRecord>>(){});
+//                        System.out.println(getListRecords());
+
+                    } else if (data.startsWith("$")) {
+//                        System.out.println("$$$$$$$$$$$$");
+
+                        ObjectMapper mapper = new ObjectMapper();
+
+                        this.servers = mapper.readValue(data.substring(1), new TypeReference<HashMap<String,ServerRecord>>(){});
+//                        System.out.println(new ObjectMapper().writeValueAsString(servers));
+                    }
+
+                } catch (IOException | InterruptedException e) {
+                    LOGGER.severe(e.getMessage());
+                    running = false;
+                }
+            }
+        };
+
+        new Thread(server).start();
+
+    }
+
+
 
     private void flowServer() throws IOException {
         // Sempre ficamos na escuta de qualquer pacote UDP que chegar
@@ -62,7 +148,9 @@ public class RecordServer extends Peer {
         var req = getDataRequest();
         var data = req.getData();
         var extractStatus = data.substring(data.lastIndexOf("%") + 1);
-        if (extractStatus.equals(PeerStatus.REGISTER.getValue())) {
+        if (extractStatus.equals(PeerStatus.DISCOVER.getValue())) {
+            send(PeerStatus.OK_DISCOVER, req.getAddress(), req.getPort());
+        } else if (extractStatus.equals(PeerStatus.REGISTER.getValue())) {
             LOGGER.info("|~>| Pedido de registro... (" + req.getHostAddress() + "@" + extractUsername(data) + ")");
 
             // O servidor inicia o processo de registro
@@ -71,6 +159,15 @@ public class RecordServer extends Peer {
             // informando que o registro foi efetuado ou não (já estava registrado)
             if (status == 1) {
                 send(PeerStatus.OK_REGISTER, req.getAddress(), req.getPort());
+                servers.forEach((chave, serverRecord) -> {
+                        try {
+
+                            propagate(records, serverRecord.getIp(), serverRecord.getPort());
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+
+                });
             } else {
                 send(PeerStatus.NONE_REGISTER, req.getAddress(), req.getPort());
             }
@@ -84,6 +181,15 @@ public class RecordServer extends Peer {
             // código de status para isso.
             if (status == 1) {
                 send(PeerStatus.OK_UNREGISTER, req.getAddress(), req.getPort());
+                servers.forEach((chave, serverRecord) -> {
+                    try {
+
+                        propagate(records, serverRecord.getIp(), serverRecord.getPort());
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+
+                });
             } else {
                 send(PeerStatus.NONE_UNREGISTER, req.getAddress(), req.getPort());
             }
@@ -96,15 +202,9 @@ public class RecordServer extends Peer {
             LOGGER.info("|~|:OK A lista de registros chegou ao destino " + req.getHostAddress());
         } else if (data.contains("%domain%")) {
             var domain = extractDomain(data);
-            var exists = existsDomain(domain);
-
-            if (exists) {
-                var infoHost = "%ip%" + records.get(domain).getIp() + "%port%" + records.get(domain).getPort();
-                send(infoHost, req.getAddress(), req.getPort());
-            } else {
-                send(PeerStatus.DOMAIN_NOT_RECOGNIZED, req.getAddress(), req.getPort());
-            }
-        } else {
+            var infoHost = "%ip%" + records.get(domain).getIp() + "%port%" + records.get(domain).getPort();
+            send(infoHost, req.getAddress(), req.getPort());
+        }  else {
             // Se o servidor receber qualquer coisa diferente, então
             // ele envia um código de status dizendo que não entendeu
             // a requisição
@@ -125,10 +225,7 @@ public class RecordServer extends Peer {
         // recebido?
         // Isso agora vai ser de grande ajuda para registro desses peer no servidor
 
-        // Primeiro vamos verificar se esse peer já está registrado pelo IP
-        status = ips.contains(data.getHostAddress()) ? -1 : 0;
 
-        if (status == 0) {
             // Vamos gerar um key para o nosso peer, usaremos um UUID aleatório
             // para isso
             var domain = UUID.randomUUID().toString();
@@ -143,9 +240,6 @@ public class RecordServer extends Peer {
             records.put(domain, new PeerRecord(username, remoteIP, remotePort));
             ips.add(remoteIP);
             status = 1;
-        } else {
-            LOGGER.info("|X| O peer " + data.getHostAddress() + " já se encontra registrado!");
-        }
 
         return status;
 
@@ -155,7 +249,7 @@ public class RecordServer extends Peer {
         var aux = new HashMap<String, String>();
 
         records.forEach((domain, peerRecord) -> {
-            if (req.getHostAddress().equals(peerRecord.getIp())) {
+            if (req.getPort() == (peerRecord.getPort())) {
                 aux.put("status", "ok");
                 aux.put("domain", domain);
                 aux.put("ip", peerRecord.getIp());
@@ -203,6 +297,34 @@ public class RecordServer extends Peer {
 
     private boolean existsDomain(String domainTarget) {
         return domains.contains(domainTarget);
+    }
+
+
+    public void sendReplicate(Map<String, PeerRecord> records, DataRequest req) throws IOException {
+        ObjectMapper mapper = new ObjectMapper();
+        String jsonRecords = mapper.writeValueAsString(records);
+        jsonRecords = "#" + jsonRecords;
+
+        this.subscribeService.send(new DatagramPacket(jsonRecords.getBytes(), jsonRecords.length(), InetAddress.getByName(req.getHostAddress()), req.getPort()) );
+    }
+
+
+    public void sendServerRecord(Map<String, ServerRecord> servers, String ip, Integer port) throws IOException {
+        ObjectMapper mapper = new ObjectMapper();
+        String jsonServers = mapper.writeValueAsString(servers);
+        jsonServers = "$" + jsonServers;
+        this.subscribeService.send(new DatagramPacket(jsonServers.getBytes(), jsonServers.length(), InetAddress.getByName(ip), port) );
+
+    }
+
+
+    public void propagate(Map<String, PeerRecord> records, String ip, Integer port) throws IOException {
+        ObjectMapper mapper = new ObjectMapper();
+        String jsonRecords = mapper.writeValueAsString(records);
+        jsonRecords = "#" + jsonRecords;
+
+        this.subscribeService.send(new DatagramPacket(jsonRecords.getBytes(), jsonRecords.length(), InetAddress.getByName(ip), port) );
+
     }
 
 }

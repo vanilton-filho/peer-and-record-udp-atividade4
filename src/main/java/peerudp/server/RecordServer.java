@@ -147,7 +147,7 @@ public class RecordServer extends Peer {
         this.getSocket().receive(getDatagramPacket());
         var req = getDataRequest();
         var data = req.getData();
-        var extractStatus = data.substring(data.lastIndexOf("%") + 1);
+        var extractStatus = data.substring(data.lastIndexOf("*") + 1);
         if (extractStatus.equals(PeerStatus.DISCOVER.getValue())) {
             send(PeerStatus.OK_DISCOVER, req.getAddress(), req.getPort());
         } else if (extractStatus.equals(PeerStatus.REGISTER.getValue())) {
@@ -226,9 +226,8 @@ public class RecordServer extends Peer {
         // Isso agora vai ser de grande ajuda para registro desses peer no servidor
 
 
-            // Vamos gerar um key para o nosso peer, usaremos um UUID aleatório
-            // para isso
-            var domain = UUID.randomUUID().toString();
+            // Agora nosso identificador na rede para realizar a comunicação entre peers será o email do usuário
+            var domain = extractEmail(data.getData());
             domains.add(domain);
             // Nome do usuário do peer que se registrou
             var username = extractUsername(data.getData());

@@ -1,6 +1,12 @@
 package peerudp.peer;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import okhttp3.*;
+import peerudp.server.PeerRecord;
+
 import java.io.IOException;
+import java.io.OutputStream;
 import java.net.*;
 import java.util.*;
 
@@ -24,6 +30,7 @@ public class Peer {
     // esta flag
     private boolean promtpCheckedMessage;
     private String username = "";
+    private String email;
 
     private InetAddress hostRegisterServer;
     private int portRegisterServer;
@@ -40,22 +47,49 @@ public class Peer {
         newRequestPacket();
     }
 
-    public Peer(int portListen, InetAddress hostTarget, int portTarget, boolean isToRegister) throws SocketException {
+    public Peer(int portListen, InetAddress hostTarget, int portTarget, boolean isToRegister) throws IOException {
         socket = new DatagramSocket(portListen);
         this.portListen = socket.getLocalPort();
         this.hostTarget = hostTarget;
         this.portTarget = portTarget;
 
-        var nameScanner = new Scanner(System.in);
-        do {
-            System.out.print("Username: ");
-            this.username = nameScanner.nextLine();
-        }
-        while (this.username.isBlank() && nameScanner.hasNextLine());
+        scanner = new Scanner(System.in);
 
+        var tempScanner = new Scanner(System.in);
+        while (this.username.isBlank()) {
+            System.out.print("Username: ");
+            this.username = tempScanner.next();
+        }
+
+        OkHttpClient clientHttp = new OkHttpClient();
+        HttpUrl.Builder urlBuilder;
+        Request request;
+        Map<String, Boolean> response;
+        var result = false;
+        while (!result) {
+
+            System.out.print("Email: ");
+            this.email = tempScanner.next();
+
+            System.out.println(this.email);
+            urlBuilder = HttpUrl.parse("http://localhost:8080/email-validator").newBuilder();
+            urlBuilder.addQueryParameter("email", this.email);
+            String url = urlBuilder.build().toString();
+
+            request = new Request.Builder()
+                    .url(url)
+                    .build();
+
+            Call call =  clientHttp.newCall(request);
+            Response responseHttp = call.execute();
+            ObjectMapper mapper = new ObjectMapper();
+            response = mapper.readValue(responseHttp.body().string(), new TypeReference<HashMap<String, Boolean>>(){});
+            result = response.get("resultValidator");
+        }
+        tempScanner.nextLine();
 
         this.isToRegister = isToRegister;
-        scanner = new Scanner(System.in);
+
         newRequestPacket();
     }
 
@@ -183,7 +217,6 @@ public class Peer {
             Thread.sleep(1000);
             quit(data, false);
 
-            this.isConnect = false;
         } else if (!data.isBlank() && !containsPeerStatusCode(data, PeerStatus.values())) {
             if (this.hostTarget != this.hostRegisterServer) {
                 send(data);
@@ -317,7 +350,7 @@ public class Peer {
         var extract = data.split("%");
         var ip = extract[2];
         var port = extract[4];
-        if (!port.equals(this.portListen)) {
+        if (!port.equals(String.valueOf(this.portListen))) {
             this.hostTarget = InetAddress.getByName(ip);
             this.portTarget = Integer.parseInt(port);
             this.isOcupped = true;
@@ -442,6 +475,10 @@ public class Peer {
 
     }
 
+    public String extractEmail(String email) {
+        return email.substring(email.indexOf("*") + 1, email.lastIndexOf("*"));
+    }
+
     public void setPortListen(int portListen) {
         this.portListen = portListen;
     }
@@ -481,7 +518,6 @@ public class Peer {
 
         }
 
-
         this.hostTarget = this.hostRegisterServer;
         this.portTarget = this.portRegisterServer;
         // Configuramos novamente para o servidor de registros
@@ -501,7 +537,7 @@ public class Peer {
         this.socket.setBroadcast(true);
         System.out.print("=> Descobrindo servidor...");
         while (!this.isConnect && port < 65535) {
-            var usernameData = "%" + this.username + "%";
+            var usernameData = "%" + this.username + "%" + "*" + this.email + "*";
             var data = usernameData + PeerStatus.REGISTER.getValue();
             var dataPacket = new DatagramPacket(data.getBytes(), data.length(), InetAddress.getByName("192.168.0.255"), port++);
             this.socket.send(dataPacket);
@@ -512,7 +548,7 @@ public class Peer {
         int port = 1024;
         this.socket.setBroadcast(true);
         while (!this.isConnect && port < 65535) {
-            var usernameData = "%" + this.username + "%";
+            var usernameData = "%" + this.username + "%" + "*" + this.email + "*";
             var data = usernameData + PeerStatus.DISCOVER.getValue();
             var dataPacket = new DatagramPacket(data.getBytes(), data.length(), InetAddress.getByName("192.168.0.255"), port++);
             this.socket.send(dataPacket);
